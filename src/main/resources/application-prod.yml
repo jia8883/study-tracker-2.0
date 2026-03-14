@@ -1,0 +1,28 @@
+spring:
+  datasource:
+    url: jdbc:h2:tcp://localhost/~/growthtracker
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    defer-datasource-initialization: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        format_sql: false
+        default_batch_fetch_size: 1000
+
+  redis:
+    host: localhost
+    port: 6379
+
+logging:
+  level:
+    org.hibernate.SQL: info
+    com.jia.study_tracker.slack.SlackEventService: INFO
+
+slack:
+  verify-signature: true
+  enabled: true
