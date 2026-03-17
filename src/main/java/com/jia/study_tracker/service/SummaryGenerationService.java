@@ -1,38 +1,28 @@
 package com.jia.study_tracker.service;
 
 import com.jia.study_tracker.domain.StudyLog;
-import com.jia.study_tracker.domain.Summary;
 import com.jia.study_tracker.domain.SummaryType;
 import com.jia.study_tracker.domain.User;
-import com.jia.study_tracker.exception.InvalidOpenAIResponseException;
-import com.jia.study_tracker.exception.OpenAIClientException;
+import com.jia.study_tracker.messaging.dto.SummaryRequestEvent;
 import com.jia.study_tracker.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import com.jia.study_tracker.dto.SummaryRetryRequest;
 import org.springframework.data.redis.core.RedisTemplate;
-
+import com.jia.study_tracker.messaging.producer.SummaryEventProducer;
 import java.time.LocalDate;
 import java.util.List;
 
 /**
- * 사용자별 로그를 조회하고, OpenAI를 통해 요약을 생성하여 DB에 저장하는 스케줄러 컴포넌트
- *
+ * SummaryGenerationService는 매일/매주/매월 스케줄러에 의해 호출되어
+ * 각 사용자에 대해 해당 기간의 StudyLog를 조회하고, AI 요약 생성을 요청하는 서비스
  * 주요 책임:
- * - 전체 사용자 조회
- * - 각 사용자의 StudyLog 가져오기
- * - OpenAI API 호출을 통해 요약 및 피드백 생성
- * - 결과를 Summary 엔티티로 저장
- * - 사용자에게 슬랙으로 AI 메시지 전송
- *
- * 예외 상황 처리:
- * - OpenAI 응답 이상 또는 호출 실패 시, 슬랙으로 사용자에게 오류 메시지를 알림
- * - 실패한 요청은 Redis 큐에 등록되어 재시도 프로세서에서 후속 처리됨
- *
- * 신뢰성 보장:
- * - 최소 1회 이상 요약을 시도(at-least-once)하는 구조를 통해
- *   사용자 로그가 누락되지 않도록 설계됨
+ * - 사용자 목록 조회 및 반복 처리
+ * - 각 사용자에 대해 StudyLog 조회 및 요약 생성 요청 전송 (Kafka)
+ * - Kafka 전송 실패 시 Redis 큐에 재시도 요청 등록
+ * - OpenAI 호출은 직접 수행하지 않고, Kafka로 메시지를 전송하여 별도의 워커(SummaryWorker)가 처리하도록 설계
+ * - Kafka로 메시지 전송 시 예외 발생 시 Redis에 재시도 요청 등록하여 최소 1회 이상 요약 생성 보장
  */
 @Service
 @RequiredArgsConstructor
@@ -41,14 +31,9 @@ public class SummaryGenerationService {
 
     private final UserRepository userRepository;
     private final StudyLogQueryService studyLogQueryService;
-    private final OpenAIClient openAIClient;
-    private final SlackNotificationService slackNotificationService;
-    private final SummarySaver summarySaver;
     private final RedisTemplate<String, SummaryRetryRequest> redisTemplate;
+    private final SummaryEventProducer summaryEventProducer;
 
-    /**
-     * 스케줄러에서 호출됨
-     */
     public void generateSummaries(LocalDate date, SummaryType type) {
         log.info("요약 생성 시작 - date: {}, type: {}", date, type);
         long userCount = userRepository.count();
@@ -73,37 +58,25 @@ public class SummaryGenerationService {
         List<StudyLog> logs = studyLogQueryService.getLogs(user.getSlackUserId(), date, type);
         log.debug("[{}] 로그 수: {}", user.getSlackUsername(), logs.size());
 
-
         if (logs.isEmpty()) {
             log.debug("[{}] {} 로그 없음 - 요약 생략", user.getSlackUsername(), type);
             return;
         }
 
-        Summary summary;
+        // OpenAI 호출 대신 Kafka로 메시지 전송
         try {
-            var result = openAIClient.generateSummaryAndFeedback(logs);
-            summary = new Summary(
-                    date,
-                    result.getSummary(),
-                    result.getFeedback(),
-                    true,
-                    null,
-                    user,
-                    type
+            summaryEventProducer.sendSummaryRequest(
+                    new SummaryRequestEvent(
+                            user.getSlackUserId(),
+                            date.toString(),
+                            type.name()
+                    )
             );
-        } catch (InvalidOpenAIResponseException e) {
-            log.warn("[{}] OpenAI 응답 오류 - {} 요약 실패: {}", user.getSlackUsername(), type, e.getMessage());
-            slackNotificationService.sendErrorNotice(user, date, type);
+            log.info("[{}] Kafka로 요약 요청 전송 완료", user.getSlackUsername());
+        } catch (Exception e) {
+            log.error("[{}] Kafka 전송 실패", user.getSlackUsername(), e);
             registerRetry(user, date, type);
-            return;
-        } catch (OpenAIClientException e) {
-            log.error("[{}] OpenAI API 호출 실패 - {} 요약 실패: {}", user.getSlackUsername(), type, e.getMessage());
-            registerRetry(user, date, type);
-            return;
         }
-
-        summarySaver.save(summary);
-        slackNotificationService.sendSummaryToUser(user, summary);
     }
 
     private void registerRetry(User user, LocalDate date, SummaryType type) {
@@ -117,4 +90,3 @@ public class SummaryGenerationService {
         redisTemplate.opsForList().rightPush("summary-retry-queue", retryRequest);
     }
 }
-
