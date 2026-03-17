@@ -35,7 +35,7 @@ public class SlackSenderWorker {
             Long summaryId = Long.valueOf(data.get("summaryId").toString());
 
             Summary summary = summaryRepository.findById(summaryId)
-                    .orElseThrow(); // TODO : 메시지 상세화?
+                    .orElseThrow();
 
             slackNotificationService.sendSummaryToUser(
                     summary.getUser(),
@@ -44,6 +44,6 @@ public class SlackSenderWorker {
 
         } catch (Exception e) {
             log.error("Slack send error - message: {}", message, e);
-        }// TODO : 여기서 에러 메시지로 message 변수를 넣는거 괜찮은가? 너무 에러메시지가 길까?
+        }
     }
 }
