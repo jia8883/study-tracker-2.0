@@ -9,7 +9,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class SummaryResultEvent {
 
-    private Long summaryId;
     private String userId;
+    private Long summaryId;
 
 }

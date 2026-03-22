@@ -14,7 +14,7 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class SummaryEventProducer {
 
-    private final KafkaTemplate<String, SummaryRequestEvent> kafkaTemplate;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
 
     public void sendSummaryRequest(SummaryRequestEvent message) {
 
