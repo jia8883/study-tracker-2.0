@@ -1,6 +1,8 @@
 package com.jia.study_tracker.worker;
 
 
+import com.jia.study_tracker.messaging.dto.SummaryRequestEvent;
+import com.jia.study_tracker.messaging.dto.SummaryResultEvent;
 import com.jia.study_tracker.messaging.topic.KafkaTopics;
 import com.jia.study_tracker.service.StudyLogQueryService;
 import lombok.RequiredArgsConstructor;
@@ -15,13 +17,10 @@ import com.jia.study_tracker.domain.User;
 import com.jia.study_tracker.repository.UserRepository;
 import com.jia.study_tracker.service.OpenAIClient;
 import com.jia.study_tracker.service.SummarySaver;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 
 /*
  * 1. KafkaTopics.SUMMARY_REQUEST 토픽에서 메시지를 수신
@@ -34,21 +33,18 @@ import java.util.Map;
 public class SummaryWorker {
 
     private final OpenAIClient openAIClient;
-    private final KafkaTemplate<String, String> kafkaTemplate;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
     private final UserRepository userRepository;
     private final SummarySaver summarySaver;
-    private final ObjectMapper objectMapper;
     private final StudyLogQueryService studyLogQueryService;
 
     @KafkaListener(topics = KafkaTopics.SUMMARY_REQUEST)
-    public void process(String message) {
+    public void process(SummaryRequestEvent event) {
 
         try {
-            Map<String, Object> data = objectMapper.readValue(message, Map.class);
-
-            String userId = (String) data.get("userId");
-            LocalDate date = LocalDate.parse((String) data.get("date"));
-            SummaryType type = SummaryType.valueOf((String) data.get("type"));
+            String userId = event.getUserId();
+            LocalDate date = LocalDate.parse(event.getDate());
+            SummaryType type = SummaryType.valueOf(event.getType());
 
             User user = userRepository.findById(userId)
                     .orElseThrow();
@@ -76,14 +72,11 @@ public class SummaryWorker {
 
             kafkaTemplate.send(
                     KafkaTopics.SUMMARY_RESULT,
-                    objectMapper.writeValueAsString(Map.of(
-                            "userId", userId,
-                            "summaryId", summary.getId()
-                    ))
+                    new SummaryResultEvent(userId, summary.getId())
             );
 
         } catch (Exception e) {
-            log.error("Summary worker error - message: {}", message, e);
+            log.error("Summary worker error - event: {}", event, e);
         }
     }
 }
