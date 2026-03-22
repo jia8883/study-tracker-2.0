@@ -1,6 +1,6 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/studytracker
+    url: jdbc:postgresql://postgres:5432/studytracker
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
@@ -13,10 +13,23 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: false
         default_batch_fetch_size: 1000
-
-  redis:
-    host: localhost
-    port: 6379
+  data:
+    redis:
+      host: redis
+      port: 6379
+  kafka:
+    bootstrap-servers: kafka:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      group-id: study-tracker
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+        spring.json.value.default.type: com.jia.study_tracker.messaging.dto.SummaryRequestEvent
 
 logging:
   level:
