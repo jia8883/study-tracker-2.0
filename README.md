@@ -13,6 +13,72 @@ Kafka 기반 Event Driven Architecture로 리디자인함
 - Slack DM으로 자동 전달
 - Kafka 기반 Worker 아키텍처로 비동기 처리
 
+### Performance Test (k6)
+##### 테스트 목적
+
+Scheduler 기반 구조에서 발생하던 병목 문제가
+Kafka 기반 Event Driven Architecture에서 어떻게 개선되는지 검증
+
+##### 테스트 환경
+- Local (Docker Compose)
+- Kafka + PostgreSQL + Redis 구성
+- OpenAI API Mock 처리
+- k6 기반 부하 테스트
+
+※ Kafka 기반 구조의 효과를 검증하기 위해 Scheduler와 이벤트가 동시에 발생하는 시나리오(SC3, SC5)에 집중
+
+#### 📌 SC3: Event + Scheduler
+> 지속적인 사용자 요청과 Scheduler가 동시에 실행되는 상황에서
+> 병목 발생 여부를 검증하기 위한 시나리오
+
+- p95 latency: 346ms
+- TPS: ~340 req/s
+- 에러율: 0%
+
+👉 Scheduler 동시 실행 상황에서도 병목 없이 안정적 처리
+
+#### 📌 SC5: Event Burst + Scheduler
+> 트래픽이 순간적으로 증가하는 상황에서
+> 이벤트 기반 구조가 부하를 어떻게 흡수하는지 검증하기 위한 시나리오
+
+- p95 latency: 530ms
+- TPS: ~825 req/s
+- 에러율: 0%
+
+👉 부하 상황에서도 장애 없이 "지연으로 부하를 흡수"하는 구조 확인
+
+##### 📊 Resource Usage (CPU)
+
+<p align="center">
+  <img src="./img/sc3.png" width="45%"/>
+  <img src="./img/sc5.png" width="45%"/>
+</p>
+<p align="center">
+  SC3 (좌) vs SC5 (우)
+</p>
+
+- CPU는 부하 증가에 따라 점진적으로 상승하며 안정적으로 유지됨
+- Event burst 상황(SC5)에서도 급격한 스파이크 없이 처리 가능
+- 시스템이 중단되지 않고 부하를 흡수하는 구조임을 확인
+
+
+##### 핵심 결과
+| 항목 | 결과 |
+|------|-----|
+| 안정성 | 에러율 0% 유지 |
+| 확장성 | 최대 ~800 TPS 처리 |
+| latency | 병목 없이 안정적으로 유지 |
+| 구조 개선 | 요청 처리와 작업 처리 분리 성공 |
+
+
+##### 결론
+
+Kafka 기반 Event Driven Architecture로 전환하여  
+요청 처리와 작업 처리를 분리하고,
+
+👉 부하 상황에서도 장애 없이 "지연으로 부하를 흡수"하는 구조로 개선하였다.
+
+
 ### 1.0에서 발견된 문제
 
 - Scheduler 중심 순차 처리로 인한 처리 지연 및 병목 발생
@@ -52,20 +118,10 @@ Scheduler는 작업을 직접 수행하지 않고,
 
 ### 설계 포인트
 
-- Kafka 기반 비동기 Worker 구조
-- OpenAI / Slack API 호출 분리
+- Kafka 기반 비동기 처리로 요청/작업 분리
+- Worker 단위 분리로 장애 격리
 - 외부 API latency 영향 최소화
-- Redis retry queue 유지
-- 작업 단위를 이벤트로 분리하여 병렬 처리 가능하도록 설계
-- 각 단계(Worker)를 독립적인 Consumer로 분리하여 장애 격리
-- 외부 API 호출이 전체 처리 흐름에 영향을 주지 않도록 구조 개선
-
-### 왜 Kafka를 선택했는가
-
-1. Scheduler 기반 구조의 병목을 해소하기 위한 비동기 처리 구조가 필요
-2. 외부 API(OpenAI, Slack) 호출을 분리하여 latency 영향을 격리 가능
-3. 작업을 이벤트 단위로 분리하여 병렬 처리 및 확장성을 확보
-4. Producer / Consumer 구조를 통해 역할을 분리 가능
+- 이벤트 단위 병렬 처리 구조
 
 ### 기술 스택
 - Language: Java 21
@@ -82,20 +138,10 @@ Scheduler는 작업을 직접 수행하지 않고,
 - 일정 시간 간격으로 재시도 수행
 - 최소 1회 이상 처리(at-least-once)
 
-### 향후 개선 계획
-
-- Kafka Retry / Dead Letter Queue 적용
-
-- k6 기반 부하 테스트
-
-- 1.0 vs 2.0 성능 비교
 
 ### 관련 문서
 - [Study Tracker 1.0 Repository](https://github.com/jia8883/study-tracker)
 - [Study Tracker 2.0 아키텍처 리디자인](./reports/study_tracker_2.0_redesign.pdf)
 
-
-※ 부하 테스트에서는 OpenAI API를 mock 처리했으며,
-외부 API latency는 실제 측정값이 아닌 구조적 영향 관점에서 분석함
 
 
